@@ -34,9 +34,9 @@ def mergeCombiners(x, y):
   return (x[0] + y[0], x[1] + y[1], x[2] + y[2])
 
 def filter(item, percentage_f):
-  if item[1][0] < item[2]:
+  if item[1][0][1] < (item[1][1][0] / item[1][1][1]):
     return False
-  if item[1][1] / item[1][0] * 100 > percentage_f:
+  if item[1][0][2] / item[1][0][3] * 100 > percentage_f:
     return False
   return True
 
@@ -51,22 +51,19 @@ def my_model(ssc, monitoring_dir, result_dir, percentage_f):
   inputDStream = ssc.textFileStream(monitoring_dir)
   #p1
   solutionDStream_json = inputDStream.map(lambda x: json.loads(x))
-  solutionDStream = solutionDStream_json.map(lambda x: (x['cuisine'], (x['evaluation'], x['points'])))
-  solutionDStream = solutionDStream.combineByKey(createCombiner, mergeValue, mergeCombiners)
+  raw = solutionDStream_json.map(lambda x: (x['cuisine'], (x['evaluation'], x['points'])))
+  solutionDStream = raw.combineByKey(createCombiner, mergeValue, mergeCombiners)
+  solutionDStream = solutionDStream.map(lambda x: ("TEMP", (x[0], x[1][0], x[1][1], x[1][2])))
   
   #p2
-  #this is the average but there is an easier way
-  avg = solutionDStream.map(lambda value: ('total', (value[1][0], 1))).reduceByKey(lambda a, b: (a[0] + b[0], a[1]+b[1])).map(lambda value: ("TEMP", value[1][0] / value[1][1]))
-  solutionDStream = solutionDStream.map(lambda x: ("TEMP", x)).join(avg).map(lambda x: (x[1][0], x[1][1], x[2]))
+  solutionDStream = solutionDStream.join(raw.count().map(lambda x: ("TEMP", x)).join(solutionDStream.count().map(lambda x: ("TEMP", x))))
   
   #p3
   solutionDStream = solutionDStream.filter(lambda x: filter(x, percentage_f))
   
   #p4
-  solutionDStream = solutionDStream.map(lambda x: (x[0], (x[1][0], x[1][1], x[1][2], x[1][2] / x[1][0])))
-  solutionDStream = solutionDStream.transform( lambda rdd : rdd.sortBy(lambda item: item[1][3], ascending= False))
-  
-  solutionDStream.cache()
+  solutionDStream = solutionDStream.map(lambda x: (x[1][0][0], (x[1][0][1], x[1][0][2], x[1][0][3], x[1][0][3] / x[1][0][1])))
+  solutionDStream = solutionDStream.transform( lambda rdd : rdd.sortBy(lambda item: item[1][3], ascending = False))
 
   # 4. We print the content of solutionDStream
   solutionDStream.pprint()
